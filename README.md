@@ -8,11 +8,13 @@ DROPT is designed to be easy to adopt. It needs no specialized software beyond a
  
 ## What's here
  
-- **The paper** — the full manuscript, including a step-by-step tutorial (Study 1B) for implementing DROPT in Qualtrics and analyzing the resulting data in R. *(Preprint / under review — see note below.)*
-- **Qualtrics template (`.qsf`)** — a ready-to-upload survey with the DROPT rank-order question and embedded-data fields already configured.
-- **JavaScript logger** — the drag-and-drop recording script to paste into a rank-order question.
-- **R scripts** — a documented five-step tutorial script, plus a compact `process_dropt_sequence()` function that returns an analysis-ready, item-level dataset in a single call.
-- **Video walkthroughs** — short screencasts showing setup and analysis from end to end.
+- **`DROPT Manuscript.pdf`** — the full manuscript, including a step-by-step tutorial (Study 1B) for implementing DROPT in Qualtrics and analyzing the resulting data in R. *(Preprint / under review — see note below.)*
+- **`Tutorial Materials/`** — everything you need to run DROPT yourself:
+  - **`DROPT_Survey_Template.qsf`** — a ready-to-upload Qualtrics survey with the DROPT rank-order question and embedded-data fields already configured.
+  - **`DROPT_JavaScript.txt`** — the drag-and-drop logger script to paste into a rank-order question.
+  - **`DROPT_5_Steps_Script.R`** — a documented, five-step tutorial script that walks through processing the recorded data.
+  - **`DROPT_R_Function.R`** — a compact `process_dropt_sequence()` function that runs the same processing in one call and returns an analysis-ready, item-level dataset.
+  - **`mock_data.csv`** — a small example dataset you can run the scripts on to see the workflow before collecting your own data.
 ## Getting started
  
 1. Upload the `.qsf` template to your Qualtrics account, or add the JavaScript to your own rank-order question.
