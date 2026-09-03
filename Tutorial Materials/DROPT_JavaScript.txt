@@ -1,0 +1,515 @@
+// DROPT JavaScript: question-level cumulative logger, embedded-data only
+//
+// Placement: paste this SAME script into the JavaScript editor for each
+// Qualtrics rank-order question that should be recorded by DROPT.
+//
+// Required Embedded Data fields in Survey Flow, before the rank-order questions:
+//   DROPT_RankProcess
+//   DROPT_TaskMetadata
+//   DROPT_TaskCount
+//   DROPT_Submitted
+//
+// Main log format:
+//   {DROPT1|0|NA|1,2,3,4,5}
+//   {DROPT1|412,980|5|1,2,5,3,4}
+//
+// Entry fields are:
+//   {task_id|timing|item_moved|current_order}
+//
+
+Qualtrics.SurveyEngine.addOnload(function () {
+  var q = this;
+
+  var CONFIG = {
+    taskPrefix: "DROPT",
+    processField: "DROPT_RankProcess",
+    metadataField: "DROPT_TaskMetadata",
+    taskCountField: "DROPT_TaskCount",
+    submittedField: "DROPT_Submitted",
+    delayMs: 200,
+
+    debug: false
+  };
+
+  var submitted = 0;
+  var startTime = new Date().getTime();
+  var activeDrag = null;
+  var pendingDrag = null;
+  var rankCountThisQuestion = 0;
+  var lastTouchStartWallTime = 0;
+
+  var questionId = getQuestionId(q);
+  var namespace = ".dropt_" + questionId.replace(/[^A-Za-z0-9_\-]/g, "_");
+  var $question = getQuestionContainer(q, questionId);
+
+  // Prevent duplicate initialization for the same question on the same page.
+  if (window.__DROPT_initialized_questions === undefined) {
+    window.__DROPT_initialized_questions = {};
+  }
+  if (window.__DROPT_initialized_questions[questionId]) {
+    log("DROPT already initialized for this question on this page:", questionId);
+    return;
+  }
+  window.__DROPT_initialized_questions[questionId] = true;
+
+  if (window.__DROPT_ED_STATE === undefined) {
+    window.__DROPT_ED_STATE = initializeStateFromEmbeddedData();
+  }
+  var state = window.__DROPT_ED_STATE;
+
+  var taskId = assignChronologicalTaskId(questionId);
+
+  initializeQuestion();
+
+  function initializeQuestion() {
+    var initialOrder = getCurrentOrder();
+
+    if (!validOrder(initialOrder)) {
+      log("DROPT did not find a valid rank order at load for", questionId, initialOrder);
+      return;
+    }
+
+    appendInitialStateOnce(taskId, questionId, initialOrder);
+    setEmbeddedData(CONFIG.submittedField, "0");
+    syncStateToEmbeddedData();
+
+    log("DROPT initialized", {
+      taskId: taskId,
+      questionId: questionId,
+      initialOrder: initialOrder,
+      process: state.process,
+      metadata: state.metadata,
+      taskCount: state.taskCount
+    });
+  }
+
+  function getQuestionId(questionObject) {
+    if (questionObject && questionObject.questionId) {
+      return String(questionObject.questionId);
+    }
+    if (questionObject && questionObject.getQuestionInfo) {
+      try {
+        var info = questionObject.getQuestionInfo();
+        if (info && info.QuestionID) return String(info.QuestionID);
+      } catch (e) {}
+    }
+    return "DROPT_Q_" + Math.floor(Math.random() * 1000000000);
+  }
+
+  function getQuestionContainer(questionObject, qid) {
+    var $container = jQuery();
+
+    if (questionObject && questionObject.getQuestionContainer) {
+      try {
+        $container = jQuery(questionObject.getQuestionContainer());
+      } catch (e) {}
+    }
+
+    if (!$container || $container.length === 0) {
+      $container = jQuery("#" + qid);
+    }
+
+    if (!$container || $container.length === 0) {
+      $container = jQuery(document);
+    }
+
+    return $container;
+  }
+
+  function log() {
+    if (CONFIG.debug && window.console && console.log) {
+      console.log.apply(console, arguments);
+    }
+  }
+
+  function normalizeEmbeddedValue(value) {
+    if (value === undefined || value === null) return "";
+    value = String(value);
+    if (value === "NA" || value === "undefined" || value === "null") return "";
+    return value;
+  }
+
+  function getEmbeddedData(field) {
+    try {
+      if (Qualtrics.SurveyEngine.getEmbeddedData) {
+        return normalizeEmbeddedValue(Qualtrics.SurveyEngine.getEmbeddedData(field));
+      }
+    } catch (e) {
+      log("DROPT could not read embedded data", field, e);
+    }
+    return "";
+  }
+
+  function setEmbeddedData(field, value) {
+    try {
+      Qualtrics.SurveyEngine.setEmbeddedData(field, String(value));
+    } catch (e) {
+      log("DROPT could not set embedded data", field, e);
+    }
+  }
+
+  function initializeStateFromEmbeddedData() {
+    var process = getEmbeddedData(CONFIG.processField);
+    var metadata = getEmbeddedData(CONFIG.metadataField);
+    var rawCount = getEmbeddedData(CONFIG.taskCountField);
+    var taskCount = parseInt(rawCount, 10);
+    if (isNaN(taskCount)) taskCount = 0;
+
+    var questionToTask = {};
+    var maxTaskNumber = 0;
+    var entries = parseMetadata(metadata);
+
+    for (var i = 0; i < entries.length; i++) {
+      questionToTask[entries[i].questionId] = entries[i].taskId;
+      maxTaskNumber = Math.max(maxTaskNumber, taskNumber(entries[i].taskId));
+    }
+
+    taskCount = Math.max(taskCount, maxTaskNumber);
+
+    return {
+      process: process,
+      metadata: metadata,
+      taskCount: taskCount,
+      questionToTask: questionToTask
+    };
+  }
+
+  function parseMetadata(raw) {
+    var out = [];
+    raw = normalizeEmbeddedValue(raw);
+    if (!raw) return out;
+
+    var re = /\{([^|{}]+)\|([^|{}]+)\|([^{}]*)\}/g;
+    var m;
+    while ((m = re.exec(raw)) !== null) {
+      out.push({
+        taskId: String(m[1]),
+        questionId: String(m[2]),
+        order: String(m[3])
+      });
+    }
+    return out;
+  }
+
+  function taskNumber(task) {
+    var re = new RegExp("^" + escapeRegExp(CONFIG.taskPrefix) + "(\\d+)$");
+    var m = re.exec(String(task));
+    if (!m) return 0;
+    var n = parseInt(m[1], 10);
+    return isNaN(n) ? 0 : n;
+  }
+
+  function syncStateToEmbeddedData() {
+    setEmbeddedData(CONFIG.processField, state.process || "");
+    setEmbeddedData(CONFIG.metadataField, state.metadata || "");
+    setEmbeddedData(CONFIG.taskCountField, String(state.taskCount || 0));
+  }
+
+  function assignChronologicalTaskId(qid) {
+    // Reuse an ID only if this question already appears in the current
+    // response's metadata. This handles accidental reload/back-navigation within
+    // the same response, but avoids carrying mappings across preview runs.
+    if (state.questionToTask[qid]) {
+      return state.questionToTask[qid];
+    }
+
+    state.taskCount += 1;
+    var id = CONFIG.taskPrefix + state.taskCount;
+    state.questionToTask[qid] = id;
+    syncStateToEmbeddedData();
+    return id;
+  }
+
+  function getElapsedTime() {
+    return new Date().getTime() - startTime;
+  }
+
+  function hasScopedRankHandles() {
+    return $question && $question.length > 0 && $question.find("li.ui-sortable-handle").length > 0;
+  }
+
+  function handleBelongsToThisQuestion($handle) {
+    if (!hasScopedRankHandles()) return true;
+    return $question[0] === $handle[0] || jQuery.contains($question[0], $handle[0]);
+  }
+
+  function getChoiceIdFromElement(el) {
+    var $li = jQuery(el).closest("li.ui-sortable-handle");
+    var choiceId = $li.attr("data-choiceid");
+    if (choiceId === undefined || choiceId === null || choiceId === "") {
+      choiceId = $li.data("choiceid");
+    }
+    if (choiceId === undefined || choiceId === null || choiceId === "") {
+      choiceId = $li.attr("choiceid");
+    }
+    if (choiceId === undefined || choiceId === null || choiceId === "") {
+      return "NA";
+    }
+    return String(choiceId);
+  }
+
+  function getCurrentOrder() {
+    var order = [];
+    var $handles = jQuery();
+
+    if (hasScopedRankHandles()) {
+      $handles = $question.find("li.ui-sortable-handle");
+    } else {
+      // Fallback to the original DROPT selector.
+      $handles = jQuery("li.ui-sortable-handle");
+    }
+
+    $handles.each(function () {
+      var choiceId = jQuery(this).attr("data-choiceid");
+      if (choiceId === undefined || choiceId === null || choiceId === "") {
+        choiceId = jQuery(this).data("choiceid");
+      }
+      if (choiceId !== undefined && choiceId !== null && String(choiceId) !== "") {
+        order.push(String(choiceId));
+      }
+    });
+
+    return order;
+  }
+
+  function arraysEqual(a, b) {
+    if (!a || !b) return false;
+    if (a.length !== b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if (String(a[i]) !== String(b[i])) return false;
+    }
+    return true;
+  }
+
+  function validOrder(order) {
+    if (!order || order.length < 2) return false;
+    var seen = {};
+    for (var i = 0; i < order.length; i++) {
+      var value = String(order[i]);
+      if (value === "" || value === "undefined" || value === "null") return false;
+      if (seen[value]) return false;
+      seen[value] = true;
+    }
+    return true;
+  }
+
+  function escapeRegExp(s) {
+    return String(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  }
+
+  function processEntry(task, timing, item, order) {
+    return "{" + task + "|" + timing + "|" + item + "|" + order.join(",") + "}";
+  }
+
+  function metadataEntry(task, qid, order) {
+    return "{" + task + "|" + qid + "|" + order.join(",") + "}";
+  }
+
+  function appendToProcess(entry) {
+    state.process = state.process ? state.process + " " + entry : entry;
+  }
+
+  function appendToMetadata(entry) {
+    state.metadata = state.metadata ? state.metadata + " " + entry : entry;
+  }
+
+  function processLogHasInitial(task) {
+    var pattern = new RegExp("\\{" + escapeRegExp(task) + "\\|0\\|NA\\|");
+    return pattern.test(state.process || "");
+  }
+
+  function metadataHasTask(task) {
+    var pattern = new RegExp("\\{" + escapeRegExp(task) + "\\|");
+    return pattern.test(state.metadata || "");
+  }
+
+  function appendInitialStateOnce(task, qid, order) {
+    if (!validOrder(order)) return;
+
+    if (!processLogHasInitial(task)) {
+      appendToProcess(processEntry(task, "0", "NA", order));
+    }
+
+    if (!metadataHasTask(task)) {
+      appendToMetadata(metadataEntry(task, qid, order));
+    }
+
+    syncStateToEmbeddedData();
+  }
+
+  function startDrag(event) {
+    if (submitted === 1) return;
+
+    // If the user starts another drag before the previous 200ms check fires,
+    // finalize the previous drag immediately using the order visible now. This
+    // is the main protection for very fast consecutive moves.
+    finalizePendingDrag("new_drag_started");
+
+    var now = new Date().getTime();
+    if (event.type === "mousedown" && now - lastTouchStartWallTime < 500) {
+      return;
+    }
+    if (event.type === "touchstart") {
+      lastTouchStartWallTime = now;
+    }
+
+    var $handle = jQuery(event.target).closest("li.ui-sortable-handle");
+    if ($handle.length === 0) return;
+    if (!handleBelongsToThisQuestion($handle)) return;
+
+    var currentOrder = getCurrentOrder();
+    if (!validOrder(currentOrder)) {
+      log("DROPT drag start ignored because current order is invalid:", currentOrder);
+      return;
+    }
+
+    activeDrag = {
+      mouseDownTime: getElapsedTime(),
+      orderAtDragStart: currentOrder.slice(),
+      itemMoved: getChoiceIdFromElement($handle),
+      timeoutId: null
+    };
+
+    log("DROPT drag start", {
+      taskId: taskId,
+      item: activeDrag.itemMoved,
+      time: activeDrag.mouseDownTime,
+      orderAtDragStart: activeDrag.orderAtDragStart
+    });
+  }
+
+  function endDrag() {
+    if (submitted === 1) return;
+    if (!activeDrag) return;
+
+    pendingDrag = {
+      mouseDownTime: activeDrag.mouseDownTime,
+      mouseUpTime: getElapsedTime(),
+      orderAtDragStart: activeDrag.orderAtDragStart.slice(),
+      itemMoved: activeDrag.itemMoved,
+      timeoutId: null
+    };
+    activeDrag = null;
+
+    pendingDrag.timeoutId = setTimeout(function () {
+      finalizePendingDrag("delay_elapsed");
+    }, CONFIG.delayMs);
+  }
+
+  function finalizePendingDrag(reason) {
+    if (!pendingDrag) return;
+
+    if (pendingDrag.timeoutId !== null) {
+      clearTimeout(pendingDrag.timeoutId);
+    }
+
+    var drag = pendingDrag;
+    pendingDrag = null;
+
+    var finalOrder = getCurrentOrder();
+
+    if (!validOrder(finalOrder) || !validOrder(drag.orderAtDragStart)) {
+      log("DROPT drag ignored because an order was invalid", {
+        reason: reason,
+        before: drag.orderAtDragStart,
+        final: finalOrder
+      });
+      return;
+    }
+
+    // Record this drag only if this specific drag changed the final rank order.
+    if (arraysEqual(finalOrder, drag.orderAtDragStart)) {
+      log("DROPT no rank-order change. Touch ignored.", {
+        reason: reason,
+        taskId: taskId,
+        item: drag.itemMoved,
+        before: drag.orderAtDragStart,
+        final: finalOrder
+      });
+      return;
+    }
+
+    rankCountThisQuestion += 1;
+
+    var timing = String(drag.mouseDownTime) + "," + String(drag.mouseUpTime);
+    var entry = processEntry(taskId, timing, drag.itemMoved, finalOrder);
+
+    appendToProcess(entry);
+    syncStateToEmbeddedData();
+
+    log("DROPT recorded rank-order change", {
+      reason: reason,
+      taskId: taskId,
+      rankCountThisQuestion: rankCountThisQuestion,
+      entry: entry,
+      process: state.process
+    });
+  }
+
+  document.addEventListener("mousedown", startDrag, false);
+  document.addEventListener("mouseup", endDrag, false);
+  document.addEventListener("touchstart", startDrag, false);
+  document.addEventListener("touchend", endDrag, false);
+
+  Qualtrics.SurveyEngine.addOnPageSubmit(function () {
+    finalizePendingDrag("page_submit");
+    submitted = 1;
+    setEmbeddedData(CONFIG.submittedField, "1");
+    syncStateToEmbeddedData();
+
+    log("DROPT page submit", {
+      taskId: taskId,
+      RankProcess: state.process,
+      TaskMetadata: state.metadata,
+      TaskCount: state.taskCount
+    });
+  });
+
+  Qualtrics.SurveyEngine.addOnUnload(function () {
+    try {
+      document.removeEventListener("mousedown", startDrag, false);
+      document.removeEventListener("mouseup", endDrag, false);
+      document.removeEventListener("touchstart", startDrag, false);
+      document.removeEventListener("touchend", endDrag, false);
+    } catch (e) {}
+  });
+
+  // Testing helpers. In Qualtrics preview, open the browser console and run
+  // DROPT_debug() after a rank-order question loads.
+  window.DROPT_debug = function () {
+    return {
+      version: "DROPT question-level cumulative ED-only",
+      questionId: questionId,
+      taskId: taskId,
+      handlesFoundInQuestion: $question.find("li.ui-sortable-handle").length,
+      handlesFoundDocument: jQuery("li.ui-sortable-handle").length,
+      currentOrder: getCurrentOrder(),
+      activeDrag: activeDrag,
+      pendingDrag: pendingDrag,
+      rankProcess: state.process,
+      taskMetadata: state.metadata,
+      taskCount: state.taskCount,
+      embeddedProcess: getEmbeddedData(CONFIG.processField),
+      embeddedMetadata: getEmbeddedData(CONFIG.metadataField),
+      embeddedTaskCount: getEmbeddedData(CONFIG.taskCountField)
+    };
+  };
+
+  window.DROPT_clearTestData = function () {
+    state.process = "";
+    state.metadata = "";
+    state.taskCount = 0;
+    state.questionToTask = {};
+    setEmbeddedData(CONFIG.processField, "");
+    setEmbeddedData(CONFIG.metadataField, "");
+    setEmbeddedData(CONFIG.taskCountField, "0");
+    setEmbeddedData(CONFIG.submittedField, "0");
+    return "DROPT test data cleared for the current preview response. Refresh/restart the survey preview from the beginning.";
+  };
+});
+
+Qualtrics.SurveyEngine.addOnReady(function () {
+  if (window.console && console.log) {
+    console.log("DROPT question-level ED-only script ready.");
+  }
+});
