@@ -6,7 +6,7 @@ Ranking is everywhere — top-25 sports polls, best-restaurant lists, a friend's
  
 DROPT is designed to be easy to adopt. It needs no specialized software beyond a survey platform (we use Qualtrics) and R, records both mouse and touchscreen interactions, and can be added to any rank-order question. This page collects everything you need to run it yourself.
 
-> [!Note]
+> [!Tip]
 > **Want to see it first?** Head to the [`Recordings/`](Recordings) folder for short screen recordings of the DROPT drag-and-drop interface in action.
  
 ## What's here
