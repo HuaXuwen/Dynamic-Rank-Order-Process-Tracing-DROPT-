@@ -31,7 +31,7 @@ DROPT is designed to be easy to adopt. It needs no specialized software beyond a
  
 ## A note on the manuscript
  
-This is a preprint / author's version and has **not yet been peer reviewed**; the findings are provisional and may change. Please cite accordingly.
+This is a preprint / author's version and is currently **under peer review**; the findings are provisional and may change. Please cite accordingly.
  
 <!-- Team: edit this note as you prefer. Springer Nature (BRM's publisher) permits sharing the
 author's version on a project or institutional page at any point during review, so a restrictive
