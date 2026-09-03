@@ -5,6 +5,9 @@ Ranking is everywhere — top-25 sports polls, best-restaurant lists, a friend's
 **DROPT (Dynamic Rank-Order Process Tracing)** is a lightweight, JavaScript-based method for recording how people build a ranking, not just the final result. As respondents drag and drop items into position in an online survey, DROPT logs the process in the background: which item was moved at each step, the timestamps for when a move started and ended, and the full order after every adjustment. From these traces you can derive item-level measures such as how often an item was touched, how early it was first moved, and how far it traveled before settling into place.
  
 DROPT is designed to be easy to adopt. It needs no specialized software beyond a survey platform (we use Qualtrics) and R, records both mouse and touchscreen interactions, and can be added to any rank-order question. This page collects everything you need to run it yourself.
+
+> [!TIP]
+> **Want to see it first?** Head to the [`Recordings/`](Recordings) folder for short screen recordings of the DROPT drag-and-drop interface in action.
  
 ## What's here
  
