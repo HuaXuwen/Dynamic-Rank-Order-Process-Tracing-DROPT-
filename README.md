@@ -6,12 +6,12 @@ Ranking is everywhere — top-25 sports polls, best-restaurant lists, a friend's
  
 DROPT is designed to be easy to adopt. It needs no specialized software beyond a survey platform (we use Qualtrics) and R, records both mouse and touchscreen interactions, and can be added to any rank-order question. This page collects everything you need to run it yourself.
 
-> [!TIP]
+> [!Note]
 > **Want to see it first?** Head to the [`Recordings/`](Recordings) folder for short screen recordings of the DROPT drag-and-drop interface in action.
  
 ## What's here
  
-- **`DROPT Manuscript.pdf`** — the full manuscript, including a step-by-step tutorial (Study 1B) for implementing DROPT in Qualtrics and analyzing the resulting data in R. *(Preprint / under review — see note below.)*
+- **`DROPT Manuscript.pdf`** — the full manuscript, including a step-by-step tutorial (Study 1B) for implementing DROPT in Qualtrics and analyzing the resulting data in R. *(under review — see note below.)*
 - **`Tutorial Materials/`** — everything you need to run DROPT yourself:
   - **`DROPT_Survey_Template.qsf`** — a ready-to-upload Qualtrics survey with the DROPT rank-order question and embedded-data fields already configured.
   - **`DROPT_JavaScript.txt`** — the drag-and-drop logger script to paste into a rank-order question.
